@@ -21,7 +21,6 @@
 // THE SOFTWARE.
 
 #import "AFJSONRequestOperation.h"
-#import "JSONKit.h"
 
 #include <Availability.h>
 
@@ -94,15 +93,12 @@ static dispatch_queue_t json_request_operation_processing_queue() {
             dispatch_async(json_request_operation_processing_queue(), ^(void) {
                 id JSON = nil;
                 NSError *JSONError = nil;
-#if __IPHONE_OS_VERSION_MIN_REQUIRED > __IPHONE_4_3
+
                 if ([NSJSONSerialization class]) {
                     JSON = [NSJSONSerialization JSONObjectWithData:data options:0 error:&JSONError];
                 } else {
-                    JSON = [[JSONDecoder decoder] objectWithData:data error:&JSONError];
+					JSONError = [NSError errorWithDomain:@"NSJSONSerialization" code:54321 userInfo:nil];
                 }
-#else
-                JSON = [[JSONDecoder decoder] objectWithData:data error:&JSONError];
-#endif
                 
                 dispatch_sync(dispatch_get_main_queue(), ^(void) {
                     if (JSONError) {
