@@ -21,7 +21,6 @@
 // THE SOFTWARE.
 
 #import "AFHTTPRequestOperation.h"
-#import "AFNetworkActivityIndicatorManager.h"
 
 static NSUInteger const kAFHTTPMinimumInitialDataCapacity = 1024;
 static NSUInteger const kAFHTTPMaximumInitialDataCapacity = 1024 * 1024 * 8;
@@ -134,7 +133,7 @@ static NSThread *_networkRequestThread = nil;
     return _networkRequestThread;
 }
 
-+ (id)operationWithRequest:(NSURLRequest *)urlRequest 
++ (AFHTTPRequestOperation *)operationWithRequest:(NSURLRequest *)urlRequest 
                 completion:(void (^)(NSURLRequest *request, NSHTTPURLResponse *response, NSData *data, NSError *error))completion
 {
     AFHTTPRequestOperation *operation = [[[self alloc] initWithRequest:urlRequest] autorelease];
@@ -143,15 +142,17 @@ static NSThread *_networkRequestThread = nil;
     return operation;
 }
 
-+ (id)operationWithRequest:(NSURLRequest *)urlRequest
-               inputStream:(NSInputStream *)inputStream
-              outputStream:(NSOutputStream *)outputStream
-                completion:(void (^)(NSURLRequest *request, NSHTTPURLResponse *response, NSError *error))completion
++ (AFHTTPRequestOperation *)operationWithRequest:(NSURLRequest *)urlRequest
+                                     inputStream:(NSInputStream *)inputStream
+                                    outputStream:(NSOutputStream *)outputStream
+                                      completion:(void (^)(NSURLRequest *request, NSHTTPURLResponse *response, NSError *error))completion
 {
     NSMutableURLRequest *mutableURLRequest = [[urlRequest mutableCopy] autorelease];
-    [mutableURLRequest setHTTPBodyStream:inputStream];
-    if ([[mutableURLRequest HTTPMethod] isEqualToString:@"GET"]) {
-        [mutableURLRequest setHTTPMethod:@"POST"];
+    if (inputStream) {
+        [mutableURLRequest setHTTPBodyStream:inputStream];
+        if ([[mutableURLRequest HTTPMethod] isEqualToString:@"GET"]) {
+            [mutableURLRequest setHTTPMethod:@"POST"];
+        }
     }
 
     AFHTTPRequestOperation *operation = [self operationWithRequest:mutableURLRequest completion:^(NSURLRequest *request, NSHTTPURLResponse *response, NSData *data, NSError *error) {
@@ -173,7 +174,7 @@ static NSThread *_networkRequestThread = nil;
         
     self.request = urlRequest;
 	
-    self.runLoopModes = [NSSet setWithObjects:NSRunLoopCommonModes, nil];
+    self.runLoopModes = [NSSet setWithObject:NSRunLoopCommonModes];
         
     self.state = AFHTTPOperationReadyState;
 	
@@ -225,11 +226,9 @@ static NSThread *_networkRequestThread = nil;
     
     switch (state) {
         case AFHTTPOperationExecutingState:
-            [[AFNetworkActivityIndicatorManager sharedManager] startAnimating];
             [[NSNotificationCenter defaultCenter] postNotificationName:AFHTTPOperationDidStartNotification object:self];
             break;
         case AFHTTPOperationFinishedState:
-            [[AFNetworkActivityIndicatorManager sharedManager] stopAnimating];
             [[NSNotificationCenter defaultCenter] postNotificationName:AFHTTPOperationDidFinishNotification object:self];
             break;
         default:
