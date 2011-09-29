@@ -37,7 +37,7 @@ NSString * const AFNetworkingErrorDomain = @"com.alamofire.networking.error";
 NSString * const AFHTTPOperationDidStartNotification = @"com.alamofire.networking.http-operation.start";
 NSString * const AFHTTPOperationDidFinishNotification = @"com.alamofire.networking.http-operation.finish";
 
-typedef void (^AFHTTPRequestOperationProgressBlock)(NSUInteger totalBytes, NSUInteger totalBytesExpected);
+typedef void (^AFHTTPRequestOperationProgressBlock)(NSInteger bytes, NSInteger totalBytes, NSInteger totalBytesExpected);
 typedef void (^AFHTTPRequestOperationCompletionBlock)(NSURLRequest *request, NSHTTPURLResponse *response, NSData *data, NSError *error);
 
 static inline NSString * AFKeyPathFromOperationState(AFHTTPOperationState state) {
@@ -84,14 +84,13 @@ static inline BOOL AFHTTPOperationStateTransitionIsValid(AFHTTPOperationState fr
 @property (readwrite, nonatomic, retain) NSHTTPURLResponse *response;
 @property (readwrite, nonatomic, retain) NSError *error;
 @property (readwrite, nonatomic, retain) NSData *responseBody;
-@property (readwrite, nonatomic, assign) NSUInteger totalBytesRead;
+@property (readwrite, nonatomic, assign) NSInteger totalBytesRead;
 @property (readwrite, nonatomic, retain) NSMutableData *dataAccumulator;
 @property (readwrite, nonatomic, retain) NSOutputStream *outputStream;
 @property (readwrite, nonatomic, copy) AFHTTPRequestOperationProgressBlock uploadProgress;
 @property (readwrite, nonatomic, copy) AFHTTPRequestOperationProgressBlock downloadProgress;
 @property (readwrite, nonatomic, copy) AFHTTPRequestOperationCompletionBlock completion;
 
-- (id)initWithRequest:(NSURLRequest *)urlRequest;
 - (void)operationDidStart;
 - (void)finish;
 @end
@@ -114,7 +113,7 @@ static inline BOOL AFHTTPOperationStateTransitionIsValid(AFHTTPOperationState fr
 
 static NSThread *_networkRequestThread = nil;
 
-+ (void)networkRequestThreadEntryPoint:(id)object {
++ (void)networkRequestThreadEntryPoint:(id)__unused object {
     do {
         NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
         [[NSRunLoop currentRunLoop] run];
@@ -136,16 +135,17 @@ static NSThread *_networkRequestThread = nil;
 + (AFHTTPRequestOperation *)operationWithRequest:(NSURLRequest *)urlRequest 
                 completion:(void (^)(NSURLRequest *request, NSHTTPURLResponse *response, NSData *data, NSError *error))completion
 {
-    AFHTTPRequestOperation *operation = [[[self alloc] initWithRequest:urlRequest] autorelease];
+    AFHTTPRequestOperation *operation = [[[self alloc] init] autorelease];
+    operation.request = urlRequest;
     operation.completion = completion;
     
     return operation;
 }
 
-+ (AFHTTPRequestOperation *)operationWithRequest:(NSURLRequest *)urlRequest
-                                     inputStream:(NSInputStream *)inputStream
-                                    outputStream:(NSOutputStream *)outputStream
-                                      completion:(void (^)(NSURLRequest *request, NSHTTPURLResponse *response, NSError *error))completion
++ (AFHTTPRequestOperation *)streamingOperationWithRequest:(NSURLRequest *)urlRequest
+                                              inputStream:(NSInputStream *)inputStream
+                                             outputStream:(NSOutputStream *)outputStream
+                                               completion:(void (^)(NSURLRequest *request, NSHTTPURLResponse *response, NSError *error))completion
 {
     NSMutableURLRequest *mutableURLRequest = [[urlRequest mutableCopy] autorelease];
     if (inputStream) {
@@ -155,7 +155,7 @@ static NSThread *_networkRequestThread = nil;
         }
     }
 
-    AFHTTPRequestOperation *operation = [self operationWithRequest:mutableURLRequest completion:^(NSURLRequest *request, NSHTTPURLResponse *response, NSData *data, NSError *error) {
+    AFHTTPRequestOperation *operation = [self operationWithRequest:mutableURLRequest completion:^(NSURLRequest *request, NSHTTPURLResponse *response, __unused NSData *data, NSError *error) {
         if (completion) {
             completion(request, response, error);
         }
@@ -166,16 +166,14 @@ static NSThread *_networkRequestThread = nil;
     return operation;
 }
 
-- (id)initWithRequest:(NSURLRequest *)urlRequest {
+- (id)init {
     self = [super init];
     if (!self) {
 		return nil;
     }
-        
-    self.request = urlRequest;
-	
+    	
     self.runLoopModes = [NSSet setWithObject:NSRunLoopCommonModes];
-        
+    
     self.state = AFHTTPOperationReadyState;
 	
     return self;
@@ -198,11 +196,11 @@ static NSThread *_networkRequestThread = nil;
     [super dealloc];
 }
 
-- (void)setUploadProgressBlock:(void (^)(NSUInteger totalBytesWritten, NSUInteger totalBytesExpectedToWrite))block {
+- (void)setUploadProgressBlock:(void (^)(NSInteger bytesWritten, NSInteger totalBytesWritten, NSInteger totalBytesExpectedToWrite))block {
     self.uploadProgress = block;
 }
 
-- (void)setDownloadProgressBlock:(void (^)(NSUInteger totalBytesRead, NSUInteger totalBytesExpectedToRead))block {
+- (void)setDownloadProgressBlock:(void (^)(NSInteger bytesRead, NSInteger totalBytesRead, NSInteger totalBytesExpectedToRead))block {
     self.downloadProgress = block;
 }
 
@@ -322,7 +320,7 @@ static NSThread *_networkRequestThread = nil;
 
 #pragma mark - NSURLConnection
 
-- (void)connection:(NSURLConnection *)connection 
+- (void)connection:(NSURLConnection *)__unused connection 
 didReceiveResponse:(NSURLResponse *)response 
 {
     self.response = (NSHTTPURLResponse *)response;
@@ -330,12 +328,14 @@ didReceiveResponse:(NSURLResponse *)response
     if (self.outputStream) {
         [self.outputStream open];
     } else {
-        NSUInteger capacity = MIN(MAX(abs(response.expectedContentLength), kAFHTTPMinimumInitialDataCapacity), kAFHTTPMaximumInitialDataCapacity);
+        
+        NSUInteger maxCapacity = MAX((NSUInteger)llabs(response.expectedContentLength), kAFHTTPMinimumInitialDataCapacity);
+        NSUInteger capacity = MIN(maxCapacity, kAFHTTPMaximumInitialDataCapacity);
         self.dataAccumulator = [NSMutableData dataWithCapacity:capacity];
     }
 }
 
-- (void)connection:(NSURLConnection *)connection 
+- (void)connection:(NSURLConnection *)__unused connection 
     didReceiveData:(NSData *)data 
 {
     self.totalBytesRead += [data length];
@@ -350,11 +350,11 @@ didReceiveResponse:(NSURLResponse *)response
     }
     
     if (self.downloadProgress) {
-        self.downloadProgress(self.totalBytesRead, self.response.expectedContentLength);
+        self.downloadProgress([data length], self.totalBytesRead, (NSInteger)self.response.expectedContentLength);
     }
 }
 
-- (void)connectionDidFinishLoading:(NSURLConnection *)connection {        
+- (void)connectionDidFinishLoading:(NSURLConnection *)__unused connection {        
     if (self.outputStream) {
         [self.outputStream close];
     } else {
@@ -365,7 +365,7 @@ didReceiveResponse:(NSURLResponse *)response
     [self finish];
 }
 
-- (void)connection:(NSURLConnection *)connection 
+- (void)connection:(NSURLConnection *)__unused connection 
   didFailWithError:(NSError *)error 
 {      
     self.error = error;
@@ -379,17 +379,17 @@ didReceiveResponse:(NSURLResponse *)response
     [self finish];
 }
 
-- (void)connection:(NSURLConnection *)connection 
+- (void)connection:(NSURLConnection *)__unused connection 
    didSendBodyData:(NSInteger)bytesWritten 
  totalBytesWritten:(NSInteger)totalBytesWritten 
 totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite
 {
     if (self.uploadProgress) {
-        self.uploadProgress(totalBytesWritten, totalBytesExpectedToWrite);
+        self.uploadProgress(bytesWritten, totalBytesWritten, totalBytesExpectedToWrite);
     }
 }
 
-- (NSCachedURLResponse *)connection:(NSURLConnection *)connection 
+- (NSCachedURLResponse *)connection:(NSURLConnection *)__unused connection 
                   willCacheResponse:(NSCachedURLResponse *)cachedResponse 
 {
     if ([self isCancelled]) {
