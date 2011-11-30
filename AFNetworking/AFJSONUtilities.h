@@ -82,7 +82,7 @@ static NSData * AFJSONEncode(id object, NSError **error) {
         [invocation getReturnValue:&data];
     } else {
         NSDictionary *userInfo = [NSDictionary dictionaryWithObject:NSLocalizedString(@"Please either target a platform that supports NSJSONSerialization or add one of the following libraries to your project: JSONKit, SBJSON, or YAJL", nil) forKey:NSLocalizedRecoverySuggestionErrorKey];
-        [NSException exceptionWithName:NSInternalInconsistencyException reason:NSLocalizedString(@"No JSON generation functionality available", nil) userInfo:userInfo];
+        [[NSException exceptionWithName:NSInternalInconsistencyException reason:NSLocalizedString(@"No JSON generation functionality available", nil) userInfo:userInfo] raise];
     }
 
     return data;
@@ -110,8 +110,10 @@ static id AFJSONDecode(NSData *data, NSError **error) {
         [invocation invoke];
         [invocation getReturnValue:&JSON];
     } else if (_SBJSONSelector && [data respondsToSelector:_SBJSONSelector]) {
+        // Create a string representation of JSON, to use SBJSON -`JSONValue` category method
+        NSString *string = [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease];
         NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:[data methodSignatureForSelector:_SBJSONSelector]];
-        invocation.target = data;
+        invocation.target = string;
         invocation.selector = _SBJSONSelector;
         
         [invocation invoke];
