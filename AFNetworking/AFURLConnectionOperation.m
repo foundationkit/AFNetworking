@@ -85,6 +85,7 @@ static inline BOOL AFStateTransitionIsValid(AFOperationState fromState, AFOperat
 
 @interface AFURLConnectionOperation ()
 @property (readwrite, nonatomic, assign) AFOperationState state;
+@property (readwrite, nonatomic, assign, getter = isCancelled) BOOL cancelled;
 @property (readwrite, nonatomic, retain) NSRecursiveLock *lock;
 @property (readwrite, nonatomic, retain) NSURLConnection *connection;
 @property (readwrite, nonatomic, retain) NSURLRequest *request;
@@ -106,6 +107,7 @@ static inline BOOL AFStateTransitionIsValid(AFOperationState fromState, AFOperat
 
 @implementation AFURLConnectionOperation
 @synthesize state = _state;
+@synthesize cancelled = _cancelled;
 @synthesize connection = _connection;
 @synthesize runLoopModes = _runLoopModes;
 @synthesize request = _request;
@@ -304,10 +306,6 @@ static inline BOOL AFStateTransitionIsValid(AFOperationState fromState, AFOperat
     return self.state == AFHTTPOperationFinishedState;
 }
 
-- (BOOL)isCancelled {
-    return _cancelled;
-}
-
 - (BOOL)isConcurrent {
     return YES;
 }
@@ -381,6 +379,7 @@ canAuthenticateAgainstProtectionSpace:(NSURLProtectionSpace *)protectionSpace
         return YES;
     }
 #endif
+    
     if (self.authenticationAgainstProtectionSpace) {
         return self.authenticationAgainstProtectionSpace(connection, protectionSpace);
     } else if ([protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust] || [protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodClientCertificate]) {
@@ -393,15 +392,16 @@ canAuthenticateAgainstProtectionSpace:(NSURLProtectionSpace *)protectionSpace
 - (void)connection:(NSURLConnection *)connection 
 didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge 
 {
+#ifdef _AFNETWORKING_ALLOW_INVALID_SSL_CERTIFICATES_
+    if ([challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust]) {
+        [challenge.sender useCredential:[NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust] forAuthenticationChallenge:challenge];
+        return;
+    }
+#endif
+    
     if (self.authenticationChallenge) {
         self.authenticationChallenge(connection, challenge);
     } else {
-#ifdef _AFNETWORKING_ALLOW_INVALID_SSL_CERTIFICATES_
-        if ([challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust]) {
-            [challenge.sender useCredential:[NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust] forAuthenticationChallenge:challenge];
-            return;
-        }
-#endif        
         if ([challenge previousFailureCount] == 0) {
             NSURLCredential *credential = nil;
             
